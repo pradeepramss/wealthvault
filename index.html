@@ -154,6 +154,7 @@ main{padding:28px;max-width:1440px;margin:0 auto;position:relative;z-index:1;}
         <input id="ef_notes" class="form-input" placeholder="e.g. Qty 100 · Avg ₹450 · Maturity Jan 2027" type="text">
       </div>
     </div>
+    <div id="editCatHint" style="display:none;padding:8px 12px;border:1px solid var(--border);border-radius:2px;font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);margin-bottom:4px;background:#090F1A"></div>
     <div id="editError" style="display:none;padding:8px 12px;border:1px solid #E0545444;border-radius:2px;font-family:'DM Mono',monospace;font-size:10px;color:var(--red);margin-bottom:12px;background:#E0545411"></div>
     <div style="display:flex;gap:10px">
       <button class="btn-accent" id="editSaveBtn" onclick="saveHolding()" style="flex:1;justify-content:center;">✓ Save</button>
@@ -274,6 +275,9 @@ main{padding:28px;max-width:1440px;margin:0 auto;position:relative;z-index:1;}
 
     <!-- Stat cards -->
     <div class="g4" style="margin-bottom:18px" id="statCards"></div>
+
+    <!-- US Quick-Add Strip (populated by JS) -->
+    <div id="usQuickAdd" style="display:none;margin-bottom:18px"></div>
 
     <!-- Charts -->
     <div class="g21" style="margin-bottom:18px">
@@ -482,13 +486,14 @@ main{padding:28px;max-width:1440px;margin:0 auto;position:relative;z-index:1;}
 const USD_INR = 83.42;
 
 const ASSET_CATEGORIES = {
-  US: ['Stocks','Cash','CD','MF','ETF','Bonds','Other'],
+  US: ['Stocks','401K','CD','MF','ETF','Bank Savings','Credit Card','Bonds','Other'],
   IN: ['Stocks','Cash','FD','MF','ULIPs','ETF','Other']
 };
 
 const CAT_COLORS = {
   Stocks:'#2D6ADF', Cash:'#4CAF7C', CD:'#C9A84C', FD:'#C9A84C',
-  MF:'#FF6B00', ULIPs:'#9B59B6', ETF:'#4A9ECC', Bonds:'#E05454', Other:'#7A8FA0'
+  MF:'#FF6B00', ULIPs:'#9B59B6', ETF:'#4A9ECC', Bonds:'#E05454', Other:'#7A8FA0',
+  '401K':'#22C55E', 'Bank Savings':'#06B6D4', 'Credit Card':'#F43F5E'
 };
 
 const MARKET_META = {
@@ -667,6 +672,43 @@ function fmtC(usd) {
 // ═══════════════════════════ TOTAL ════════════════════════════════
 function totalUSD(m) { return portfolioData[m].holdings.reduce((s,h)=>s+(h.valueUSD||0),0); }
 
+function updateQuickAdd() {
+  const el = document.getElementById('usQuickAdd');
+  if (!el) return;
+  const show = market === 'US' && portfolioData.US.holdings.length === 0;
+  if (!show) { el.style.display = 'none'; return; }
+  const cats = [
+    {cat:'Stocks',      icon:'📈', desc:'NYSE / NASDAQ stocks'},
+    {cat:'401K',        icon:'🏦', desc:'Retirement accounts'},
+    {cat:'CD',          icon:'📋', desc:'Certificates of Deposit'},
+    {cat:'MF',          icon:'🔀', desc:'Mutual Funds'},
+    {cat:'ETF',         icon:'💹', desc:'Exchange Traded Funds'},
+    {cat:'Bank Savings',icon:'🏛', desc:'Savings accounts'},
+    {cat:'Credit Card', icon:'💳', desc:'Outstanding balances'},
+    {cat:'Bonds',       icon:'📜', desc:'Treasury / Corp bonds'},
+  ];
+  el.style.display = 'block';
+  el.innerHTML = '<div class="card" style="padding:20px 24px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">' +
+      '<div><div class="stat-label" style="margin-bottom:3px">🇺🇸 US Portfolio — Quick Add</div>' +
+      '<div style="font-size:15px;font-weight:300">Click a category to add your first holding, or import via Excel</div></div>' +
+      '<button class="btn-ghost" onclick="openImport()" style="font-size:10px">⬆ Import Excel</button>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">' +
+    cats.map(function(q) {
+      var col = CAT_COLORS[q.cat] || '#4A6278';
+      return '<button onclick="openAdd(\'' + q.cat + '\')" ' +
+        'style="background:#090F1A;border:1px solid ' + col + '44;color:var(--text);padding:14px 12px;cursor:pointer;border-radius:3px;text-align:left;transition:all .2s;width:100%" ' +
+        'onmouseover="this.style.background=\'' + col + '18\';this.style.borderColor=\'' + col + '\'" ' +
+        'onmouseout="this.style.background=\'#090F1A\';this.style.borderColor=\'' + col + '44\'">' +
+        '<div style="font-size:18px;margin-bottom:6px">' + q.icon + '</div>' +
+        '<div style="font-size:12px;font-weight:500;color:' + col + ';margin-bottom:3px">' + q.cat + '</div>' +
+        '<div class="mono" style="font-size:9px;color:var(--text3)">' + q.desc + '</div>' +
+        '</button>';
+    }).join('') +
+    '</div></div>';
+}
+
 // ═══════════════════════════ THEME ════════════════════════════════
 function applyTheme() {
   const m = MARKET_META[market];
@@ -712,6 +754,7 @@ function renderAll() {
   renderTicker(mm);
   renderHero(mm,d);
   renderStatCards(d);
+  updateQuickAdd();
   renderPerfChart(mm,d);
   renderAllocChart(d);
   renderHoldings(d);
@@ -764,24 +807,29 @@ function renderStatCards(d) {
   const stk=d.holdings.filter(h=>['Stocks','ETF'].includes(h.category)).reduce((s,h)=>s+h.valueUSD,0);
   const fd=d.holdings.filter(h=>h.category==='FD'||h.category==='CD').reduce((s,h)=>s+h.valueUSD,0);
   const ulip=d.holdings.filter(h=>h.category==='ULIPs').reduce((s,h)=>s+h.valueUSD,0);
-  const mf=d.holdings.filter(h=>h.category==='MF').reduce((s,h)=>s+h.valueUSD,0);
-  const cash=d.holdings.filter(h=>h.category==='Cash').reduce((s,h)=>s+h.valueUSD,0);
+  const cash=d.holdings.filter(h=>h.category==='Cash'||h.category==='Bank Savings').reduce((s,h)=>s+h.valueUSD,0);
+  const k401=d.holdings.filter(h=>h.category==='401K').reduce((s,h)=>s+h.valueUSD,0);
+  const cc=d.holdings.filter(h=>h.category==='Credit Card').reduce((s,h)=>s+h.valueUSD,0);
   const stkCount=d.holdings.filter(h=>['Stocks','ETF'].includes(h.category)).length;
   const fdCount=d.holdings.filter(h=>h.category==='FD').length;
   const ulipCount=d.holdings.filter(h=>h.category==='ULIPs').length;
+  const k401Count=d.holdings.filter(h=>h.category==='401K').length;
+
+  // Net worth for US = assets - credit card balances
+  const netWorth = tot - cc;
 
   const cards = market==='IN' ? [
-    {label:'Total Portfolio Value', value:fmt(tot,true)||'—',        sub:`${d.holdings.length} holdings across all categories`},
-    {label:'Stocks & ETFs',         value:fmt(stk,true)||'—',        sub:`${stkCount} positions · NSE/BSE`},
-    {label:'FD & Provident Fund',   value:fmt(fd,true)||'—',         sub:`${fdCount} FDs + PF · Mat value ₹1.40 Cr`},
-    {label:'ULIPs',                 value:fmt(ulip,true)||'—',       sub:`${ulipCount} policies · Total cover ₹2.35 Cr`},
+    {label:'Total Portfolio Value', value:fmt(tot,true)||'—',   sub:`${d.holdings.length} holdings across all categories`},
+    {label:'Stocks & ETFs',         value:fmt(stk,true)||'—',   sub:`${stkCount} positions · NSE/BSE`},
+    {label:'FD & Provident Fund',   value:fmt(fd,true)||'—',    sub:`${fdCount} FDs + PF · Mat value ₹1.40 Cr`},
+    {label:'ULIPs',                 value:fmt(ulip,true)||'—',  sub:`${ulipCount} policies · Total cover ₹2.35 Cr`},
   ] : [
-    {label:'Total Value',           value:fmt(tot,true)||'—',        sub:`${d.holdings.length} holdings`},
-    {label:'Stocks / Equities',     value:fmt(stk,true)||'—',        sub:`${stkCount} positions`},
-    {label:'CD / Bonds',            value:fmt(fd,true)||'—',         sub:d.holdings.filter(h=>['FD','CD','Bonds'].includes(h.category)).length+' positions'},
-    {label:'Cash Balance',          value:fmt(cash,true)||'—',       sub:'Liquid'},
+    {label:'Net Worth',             value:fmt(netWorth,true)||'—',   sub:`Assets ${fmt(tot,true)} · CC ${fmt(cc,true)||'$0'}`, col: netWorth>=0?'var(--green)':'var(--red)'},
+    {label:'401K / Retirement',     value:fmt(k401,true)||'—',       sub:`${k401Count} account${k401Count!==1?'s':''} · Tax-advantaged`},
+    {label:'Stocks, ETF & MF',      value:fmt(stk,true)||'—',        sub:`${stkCount} positions · NYSE/NASDAQ`},
+    {label:'Bank Savings & CD',     value:fmt(cash+fd,true)||'—',    sub:'Liquid + Fixed deposits'},
   ];
-  document.getElementById('statCards').innerHTML=cards.map(c=>`<div class="card" style="padding:16px 20px"><div class="stat-label">${c.label}</div><div style="font-size:21px;font-weight:300;color:var(--text)">${c.value}</div><div class="mono" style="font-size:9px;color:var(--text3);margin-top:4px">${c.sub}</div></div>`).join('');
+  document.getElementById('statCards').innerHTML=cards.map(c=>`<div class="card" style="padding:16px 20px"><div class="stat-label">${c.label}</div><div style="font-size:21px;font-weight:300;color:${c.col||'var(--text)'}">${c.value}</div><div class="mono" style="font-size:9px;color:var(--text3);margin-top:4px">${c.sub}</div></div>`).join('');
 }
 
 // ─── Performance Chart ────────────────────────────────────────────
@@ -851,19 +899,30 @@ function renderHoldings(d) {
     document.getElementById('holdingsBody').innerHTML=`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">${tot===0?'No data — click Import Excel or + Add Holding to get started':'No holdings in this category'}</div></div>`;
     return;
   }
-  document.getElementById('holdingsBody').innerHTML=filtered.map(h=>`
-    <div class="tbl-row" style="grid-template-columns:2fr 0.7fr 0.65fr 1fr 0.6fr 0.6fr auto;cursor:default">
-      <div><div style="font-size:12.5px;color:#D8C8B8;margin-bottom:1px">${h.name}</div><div class="mono" style="font-size:9px;color:var(--text3)">${tot>0?((h.valueUSD/tot)*100).toFixed(1)+'% of portfolio':''}</div></div>
-      <span class="mono" style="font-size:10px;color:${mm.accentL}">${h.ticker||'—'}</span>
-      <span style="background:${CAT_COLORS[h.category]||'#4A6278'}22;color:${CAT_COLORS[h.category]||'#4A6278'};border:1px solid ${CAT_COLORS[h.category]||'#4A6278'}44;font-family:'DM Mono',monospace;font-size:8px;padding:2px 6px;border-radius:1px;text-align:center;align-self:center;white-space:nowrap">${h.category}</span>
-      <span class="mono" style="font-size:11px;color:var(--text)">${fmt(h.valueUSD,true)}</span>
-      <span class="mono ${h.returnPct>0?'positive':h.returnPct<0?'negative':''}" style="font-size:11px">${h.returnPct!=null?(h.returnPct>0?'+':'')+h.returnPct+'%':'—'}</span>
+  document.getElementById('holdingsBody').innerHTML=filtered.map(h=>{
+    const isCC = h.category==='Credit Card';
+    const is401K = h.category==='401K';
+    const catColor = CAT_COLORS[h.category]||'#4A6278';
+    const valColor = isCC ? 'var(--red)' : 'var(--text)';
+    const valDisplay = isCC ? `-${fmt(h.valueUSD,true)}` : fmt(h.valueUSD,true);
+    const retDisplay = isCC ? `<span class="mono" style="font-size:10px;color:var(--text3)">APR</span>` :
+      `<span class="mono ${h.returnPct>0?'positive':h.returnPct<0?'negative':''}" style="font-size:11px">${h.returnPct!=null?(h.returnPct>0?'+':'')+h.returnPct+'%':'—'}</span>`;
+    return `<div class="tbl-row${isCC?' cc-row':''}" style="grid-template-columns:2fr 0.7fr 0.65fr 1fr 0.6fr 0.6fr auto;cursor:default${isCC?';background:#F43F5E08;border-left:2px solid #F43F5E44':''}">
+      <div>
+        <div style="font-size:12.5px;color:${isCC?'#FF8090':'#D8C8B8'};margin-bottom:1px">${h.name}${isCC?' <span style="font-family:DM Mono,monospace;font-size:8px;color:#F43F5E;background:#F43F5E18;padding:1px 5px;border-radius:1px;margin-left:4px">LIABILITY</span>':''}</div>
+        <div class="mono" style="font-size:9px;color:var(--text3)">${isCC?'Balance owed — reduces Net Worth':tot>0?((h.valueUSD/tot)*100).toFixed(1)+'% of portfolio':''}</div>
+      </div>
+      <span class="mono" style="font-size:10px;color:${catColor}">${h.ticker||'—'}</span>
+      <span style="background:${catColor}22;color:${catColor};border:1px solid ${catColor}44;font-family:'DM Mono',monospace;font-size:8px;padding:2px 6px;border-radius:1px;text-align:center;align-self:center;white-space:nowrap">${h.category}</span>
+      <span class="mono" style="font-size:11px;color:${valColor};font-weight:${isCC?500:400}">${valDisplay}</span>
+      ${retDisplay}
       <span class="mono" style="font-size:9px;color:var(--text3);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${h.notes||''}">${h.notes||'—'}</span>
       <div style="display:flex;gap:5px;align-items:center;padding-left:6px">
         <button onclick="openEdit('${h.id}')" title="Edit" style="background:transparent;border:1px solid var(--border);color:var(--text2);padding:4px 8px;font-size:11px;cursor:pointer;border-radius:2px;transition:all .15s;line-height:1" onmouseover="this.style.borderColor='#4A9ECC';this.style.color='#4A9ECC'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text2)'">✏</button>
         <button onclick="confirmDeleteHolding('${h.id}')" title="Delete" style="background:transparent;border:1px solid #E0545433;color:#E05454;padding:4px 8px;font-size:11px;cursor:pointer;border-radius:2px;transition:all .15s;line-height:1" onmouseover="this.style.background='#E0545422'" onmouseout="this.style.background='transparent'">🗑</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function setActiveCat(c){ activeCat=c; renderHoldings(portfolioData[market]); }
@@ -1117,6 +1176,7 @@ function openEdit(id) {
   document.getElementById('ef_return').value = h.returnPct != null ? h.returnPct : '';
   document.getElementById('ef_notes').value = h.notes || '';
   document.getElementById('editError').style.display = 'none';
+  updateEditModalHint();
   document.getElementById('editModal').classList.add('open');
   document.getElementById('ef_name').focus();
 }
@@ -1126,6 +1186,34 @@ function populateCatSelect(selected) {
   sel.innerHTML = ASSET_CATEGORIES[market].map(c =>
     `<option value="${c}" ${c === selected ? 'selected' : ''}>${c}</option>`
   ).join('');
+  updateEditModalHint();
+  sel.onchange = updateEditModalHint;
+}
+
+function updateEditModalHint() {
+  const cat = document.getElementById('ef_category').value;
+  const labelEl = document.getElementById('ef_valLabel');
+  const notesEl = document.getElementById('ef_notes');
+  const hintEl  = document.getElementById('editCatHint');
+  const hints = {
+    '401K':        {label:`Balance (${currency}) *`, hint:'Enter current account balance. Include 401K, Roth IRA, HSA etc.', placeholder:'Employer: Fidelity · YTD contrib $10,000'},
+    'Bank Savings':{label:`Balance (${currency}) *`, hint:'Enter current savings account balance. APY % optional.', placeholder:'APY 4.25% · FDIC insured · Chase'},
+    'Credit Card': {label:`Balance Owed (${currency}) *`, hint:'⚠ Liability — enter the amount you OWE (positive number). This will reduce your Net Worth.', placeholder:'Limit $10,000 · APR 21.49% · Chase Sapphire'},
+    'CD':          {label:`Value (${currency}) *`,   hint:'Enter current value. APY % → Return field.', placeholder:'Mat: Sep 2026 · APY 4.8% · 6-month term'},
+    'Stocks':      {label:`Value (${currency}) *`,   hint:'Enter current market value (qty × price).', placeholder:'Qty 100 · Avg $150 · CMP $175'},
+    'MF':          {label:`Value (${currency}) *`,   hint:'Enter current NAV × units.', placeholder:'Vanguard Total Market VTSAX'},
+    'ETF':         {label:`Value (${currency}) *`,   hint:'Enter current market value.', placeholder:'250 units · SPY · Avg $420'},
+    'Bonds':       {label:`Value (${currency}) *`,   hint:'Enter current face/market value.', placeholder:'US Treasury 10Y · 2.5% coupon'},
+  };
+  const h = hints[cat] || {label:`Value (${currency}) *`, hint:'', placeholder:'Additional details'};
+  if(labelEl) labelEl.textContent = h.label;
+  if(hintEl) {
+    hintEl.textContent = h.hint;
+    hintEl.style.display = h.hint ? 'block' : 'none';
+    hintEl.style.color = cat === 'Credit Card' ? '#F43F5E' : 'var(--text3)';
+    hintEl.style.borderColor = cat === 'Credit Card' ? '#F43F5E44' : 'var(--border)';
+  }
+  if(notesEl && !notesEl.value) notesEl.placeholder = h.placeholder;
 }
 
 function closeEdit() {
@@ -1145,7 +1233,7 @@ function saveHolding() {
 
   // Validate
   if (!name) { showEditError('Asset Name is required.'); return; }
-  if (!valRaw || isNaN(valRaw) || valRaw < 0) { showEditError('Please enter a valid positive value.'); return; }
+  if (isNaN(valRaw) || valRaw < 0) { showEditError('Please enter a valid positive value (enter Credit Card balance as a positive number).'); return; }
   errEl.style.display = 'none';
 
   // Convert display currency back to USD for storage
@@ -1154,14 +1242,12 @@ function saveHolding() {
 
   const d = portfolioData[market];
   if (editingId) {
-    // Update existing
     const idx = d.holdings.findIndex(h => h.id === editingId);
     if (idx !== -1) {
       d.holdings[idx] = { ...d.holdings[idx], name, ticker, category: cat, valueUSD, returnPct, notes };
     }
     showToast(`✓ Updated: ${name}`, 'var(--green)');
   } else {
-    // Add new
     const newId = 'h_' + Date.now();
     d.holdings.push({ id: newId, name, ticker, category: cat, valueUSD, returnPct, notes });
     showToast(`✓ Added: ${name}`, MARKET_META[market].accentL);
@@ -1221,77 +1307,276 @@ function doExport(){
   const d=portfolioData[market]; const mm=MARKET_META[market];
   const wb=XLSX.utils.book_new();
   const tot=totalUSD(market);
-  // Summary
-  const ws1=XLSX.utils.aoa_to_sheet([
+  const isUS=market==='US';
+  const cur=currency;
+  const fv=v=>cur==='INR'?Math.round(v*USD_INR):Math.round(v*100)/100;
+
+  // Credit card total for US net worth calc
+  const ccTotal=isUS?d.holdings.filter(h=>h.category==='Credit Card').reduce((s,h)=>s+h.valueUSD,0):0;
+  const netWorth=tot-ccTotal;
+
+  // ── Summary ──
+  const summaryRows=[
     ['WEALTHVAULT — PORTFOLIO EXPORT'],
-    [`Market: ${mm.label}  |  Currency: ${currency}  |  Date: ${new Date().toLocaleDateString()}`],[],
+    [`Market: ${mm.label}  |  Currency: ${cur}  |  Date: ${new Date().toLocaleDateString()}`],[],
     ['Field','Value'],
-    ['Total Portfolio Value', currency==='INR'?Math.round(tot*USD_INR):Math.round(tot)],
-    ['Total Holdings',d.holdings.length],['YTD Return',d.ytd+'%'],
-    [`Benchmark (${mm.bench}) YTD`,d.benchYtd+'%'],['Currency',currency],['USD/INR Rate',USD_INR],
-    ['Export Date',new Date().toISOString()],
-  ]);
-  ws1['!cols']=[{wch:30},{wch:24}]; XLSX.utils.book_append_sheet(wb,ws1,'Summary');
-  // Holdings
-  const hHdr=['Asset Name','Ticker/ID','Category','Value ('+currency+')','Return %','Notes'];
-  const hRows=d.holdings.map(h=>[h.name,h.ticker||'',h.category,currency==='INR'?Math.round(h.valueUSD*USD_INR):Math.round(h.valueUSD),h.returnPct||'',h.notes||'']);
+    ['Total Assets', fv(tot)],
+  ];
+  if(isUS){
+    const k401=d.holdings.filter(h=>h.category==='401K').reduce((s,h)=>s+h.valueUSD,0);
+    const stk=d.holdings.filter(h=>['Stocks','ETF'].includes(h.category)).reduce((s,h)=>s+h.valueUSD,0);
+    const sav=d.holdings.filter(h=>h.category==='Bank Savings').reduce((s,h)=>s+h.valueUSD,0);
+    const cd=d.holdings.filter(h=>h.category==='CD').reduce((s,h)=>s+h.valueUSD,0);
+    summaryRows.push(
+      ['Credit Card Balances', fv(ccTotal)],
+      ['Net Worth (Assets - CC)', fv(netWorth)],
+      ['401K / Retirement', fv(k401)],
+      ['Stocks & ETFs', fv(stk)],
+      ['Bank Savings', fv(sav)],
+      ['CDs', fv(cd)],
+    );
+  }
+  summaryRows.push(
+    ['Total Holdings', d.holdings.length],
+    ['YTD Return', d.ytd+'%'],
+    [`Benchmark (${mm.bench}) YTD`, d.benchYtd+'%'],
+    ['Currency', cur],
+    ['USD/INR Rate', USD_INR],
+    ['Export Date', new Date().toISOString()],
+  );
+  const ws1=XLSX.utils.aoa_to_sheet(summaryRows);
+  ws1['!cols']=[{wch:30},{wch:24}];
+  XLSX.utils.book_append_sheet(wb,ws1,'Summary');
+
+  // ── Holdings (all categories) ──
+  const hHdr=['Asset Name','Ticker/ID','Category',`Value (${cur})`,'Return %','Notes'];
+  const hRows=d.holdings.map(h=>[h.name,h.ticker||'',h.category,fv(h.valueUSD),h.returnPct!=null?h.returnPct:'',h.notes||'']);
   const ws2=XLSX.utils.aoa_to_sheet([hHdr,...hRows]);
-  ws2['!cols']=[{wch:28},{wch:14},{wch:10},{wch:18},{wch:10},{wch:24}]; XLSX.utils.book_append_sheet(wb,ws2,'Holdings');
-  // Transactions
-  const tHdr=['Date','Type','Asset','Category','Amount ('+currency+')','Status'];
-  const tRows=d.transactions.map(t=>[t.date,t.type,t.asset,t.category||'',t.amtUSD!=null?(currency==='INR'?Math.round(t.amtUSD*USD_INR):Math.round(t.amtUSD)):'—',t.status]);
+  ws2['!cols']=[{wch:30},{wch:16},{wch:14},{wch:16},{wch:10},{wch:36}];
+  XLSX.utils.book_append_sheet(wb,ws2,'Holdings');
+
+  // ── 401K Detail Sheet (US only) ──
+  if(isUS){
+    const k401Items=d.holdings.filter(h=>h.category==='401K');
+    const k401Hdr=['Account Name','Ticker/ID',`Balance (${cur})`,'Return %','Notes'];
+    const k401Rows=k401Items.map(h=>[h.name,h.ticker||'',fv(h.valueUSD),h.returnPct!=null?h.returnPct:'',h.notes||'']);
+    const k401Total=k401Items.reduce((s,h)=>s+h.valueUSD,0);
+    const ws401=XLSX.utils.aoa_to_sheet([
+      ['401K / RETIREMENT ACCOUNTS'],
+      [`Exported: ${new Date().toLocaleDateString()}`],[],
+      k401Hdr,
+      ...k401Rows,
+      [],
+      ['TOTAL',''  ,fv(k401Total),'',''],
+    ]);
+    ws401['!cols']=[{wch:28},{wch:16},{wch:16},{wch:10},{wch:36}];
+    XLSX.utils.book_append_sheet(wb,ws401,'401K Retirement');
+
+    // ── Bank Savings Sheet ──
+    const savItems=d.holdings.filter(h=>h.category==='Bank Savings');
+    const savHdr=['Account Name','Ticker/ID',`Balance (${cur})`,'Return %','Notes'];
+    const savRows=savItems.map(h=>[h.name,h.ticker||'',fv(h.valueUSD),h.returnPct!=null?h.returnPct:'',h.notes||'']);
+    const savTotal=savItems.reduce((s,h)=>s+h.valueUSD,0);
+    const wsSav=XLSX.utils.aoa_to_sheet([
+      ['BANK SAVINGS ACCOUNTS'],
+      [`Exported: ${new Date().toLocaleDateString()}`],[],
+      savHdr,
+      ...savRows,
+      [],
+      ['TOTAL','',fv(savTotal),'',''],
+    ]);
+    wsSav['!cols']=[{wch:28},{wch:16},{wch:16},{wch:10},{wch:36}];
+    XLSX.utils.book_append_sheet(wb,wsSav,'Bank Savings');
+
+    // ── Credit Cards Sheet ──
+    const ccItems=d.holdings.filter(h=>h.category==='Credit Card');
+    const ccHdr=['Card Name','Ticker/ID',`Balance Owed (${cur})`,'APR %','Notes'];
+    const ccRows=ccItems.map(h=>[h.name,h.ticker||'',fv(h.valueUSD),h.returnPct!=null?h.returnPct:'',h.notes||'']);
+    const wsCC=XLSX.utils.aoa_to_sheet([
+      ['CREDIT CARD BALANCES'],
+      [`These reduce your Net Worth. Total owed: ${cur==='INR'?'₹':'$'}${fv(ccTotal).toLocaleString()}`],[],
+      ccHdr,
+      ...ccRows,
+      [],
+      ['TOTAL OWED','',fv(ccTotal),'',''],
+    ]);
+    wsCC['!cols']=[{wch:28},{wch:16},{wch:16},{wch:10},{wch:36}];
+    XLSX.utils.book_append_sheet(wb,wsCC,'Credit Cards');
+  }
+
+  // ── Transactions ──
+  const tHdr=['Date','Type','Asset','Category',`Amount (${cur})`,'Status'];
+  const tRows=d.transactions.map(t=>[t.date,t.type,t.asset,t.category||'',t.amtUSD!=null?fv(t.amtUSD):'—',t.status]);
   const ws3=XLSX.utils.aoa_to_sheet([tHdr,...tRows]);
-  ws3['!cols']=[{wch:14},{wch:8},{wch:28},{wch:10},{wch:16},{wch:10}]; XLSX.utils.book_append_sheet(wb,ws3,'Transactions');
-  // Performance
-  const pHdr=['Month','Portfolio Value ('+currency+')','Benchmark ('+currency+')'];
-  const pRows=d.perf.map(p=>[p.m,currency==='INR'?Math.round(p.v*USD_INR):p.v,currency==='INR'?Math.round(p.b*USD_INR):p.b]);
-  const ws4=XLSX.utils.aoa_to_sheet([pHdr,...pRows]);
-  ws4['!cols']=[{wch:8},{wch:24},{wch:24}]; XLSX.utils.book_append_sheet(wb,ws4,'Performance');
-  // Allocation
+  ws3['!cols']=[{wch:14},{wch:8},{wch:28},{wch:14},{wch:16},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,ws3,'Transactions');
+
+  // ── Allocation ──
   const cats={}; d.holdings.forEach(h=>{cats[h.category]=(cats[h.category]||0)+h.valueUSD;});
-  const ws5=XLSX.utils.aoa_to_sheet([['Category','Value ('+currency+')','Allocation %'],...Object.entries(cats).map(([c,v])=>[c,currency==='INR'?Math.round(v*USD_INR):Math.round(v),tot>0?+((v/tot)*100).toFixed(2):0])]);
-  ws5['!cols']=[{wch:16},{wch:18},{wch:14}]; XLSX.utils.book_append_sheet(wb,ws5,'Allocation');
-  const fn=`WealthVault_${market}_${currency}_${new Date().toISOString().split('T')[0]}.xlsx`;
-  XLSX.writeFile(wb,fn); showToast(`✓ Exported: ${fn}`,'var(--green)');
+  const wsAl=XLSX.utils.aoa_to_sheet([
+    [`Category`,`Value (${cur})`,`Allocation %`,`Note`],
+    ...Object.entries(cats).map(([c,v])=>[c,fv(v),tot>0?+((v/tot)*100).toFixed(2):0,c==='Credit Card'?'Liability — deducted from Net Worth':'']),
+  ]);
+  wsAl['!cols']=[{wch:16},{wch:16},{wch:14},{wch:36}];
+  XLSX.utils.book_append_sheet(wb,wsAl,'Allocation');
+
+  const fn=`WealthVault_${market}_${cur}_${new Date().toISOString().split('T')[0]}.xlsx`;
+  XLSX.writeFile(wb,fn);
+  showToast(`✓ Exported: ${fn}`,'var(--green)');
 }
 
 // ═══════════════════════════ TEMPLATE DOWNLOAD ════════════════════
 function downloadTemplate(mkt){
-  const cats=ASSET_CATEGORIES[mkt];
-  const wb=XLSX.utils.book_new();
-  // Holdings template
-  const hdr=['Asset Name','Ticker/ID','Category','Value (USD)','Return %','Notes'];
-  const examples=cats.map(c=>{
-    const ex={Stocks:['e.g. Apple Inc','AAPL'],Cash:['e.g. Bank Savings','SB001'],FD:['e.g. HDFC FD','FD001'],CD:['e.g. 6M Treasury CD','CD001'],MF:['e.g. HDFC Mid Cap Fund','HDFCMID'],ULIPs:['e.g. LIC ULIP Plan','LIC001'],ETF:['e.g. NIFTY BEES','NIFTYBEES'],Bonds:['e.g. US Treasury Bond','T-BOND'],Other:['e.g. Other Asset','OTH001']};
-    const nm=ex[c]||['e.g. Asset Name','ID001'];
-    return [nm[0],nm[1],c,'',0,''];
+  const cats = ASSET_CATEGORIES[mkt];
+  const wb   = XLSX.utils.book_new();
+  const isUS = mkt === 'US';
+  const cur  = isUS ? 'USD' : 'INR';
+
+  // ── Sheet 1: Holdings ──────────────────────────────────────────
+  const hdr = ['Asset Name','Ticker/ID','Category',`Value (${cur})`,'Return %','Notes'];
+  const exMap = {
+    Stocks:       ['Apple Inc',                 'AAPL',        'e.g. 100 shares · Avg $150 · CMP $175'],
+    '401K':       ['Fidelity 401K',             '401K-FIDE',   'Employer: Acme Corp · YTD contrib $10,000'],
+    CD:           ['6-Month Treasury CD',       'CD-6M',       'Maturity: Sep 2026 · APY 4.8%'],
+    MF:           ['Vanguard Total Market',     'VTSAX',       'Index fund · Expense 0.04%'],
+    ETF:          ['SPDR S&P 500 ETF',          'SPY',         '250 units · Avg $420'],
+    'Bank Savings':['Chase High-Yield Savings', 'CHASE-SAV',   'APY 4.25% · FDIC insured'],
+    'Credit Card':['Chase Sapphire Balance',    'CC-CHASE',    'Enter as NEGATIVE or balance owed'],
+    Bonds:        ['US Treasury 10Y Bond',      'T-BOND-10Y',  '2.5% coupon · Mat 2034'],
+    Other:        ['Other Asset',               'OTH-001',     'Description here'],
+    Cash:         ['Bank Savings Account',      'CASH-001',    'Liquid savings'],
+    FD:           ['HDFC Bank FD',              'FD-HDFC-01',  'Mat Dec 2027 · Rate 7.35%'],
+    ULIPs:        ['ICICI Prudential ULIP',     'ICICI-PRU',   'Policy# · Cover amt'],
+  };
+  const examples = cats.map(c => {
+    const ex = exMap[c] || ['e.g. Asset Name','ID-001','Notes here'];
+    return [ex[0], ex[1], c, '', 0, ex[2]];
   });
-  const ws1=XLSX.utils.aoa_to_sheet([
-    ['WEALTHVAULT — '+mkt+' PORTFOLIO IMPORT TEMPLATE'],
-    [`Market: ${mkt==='US'?'US Market':'India Market'}  |  Fill in Value in USD  |  Return % is optional`],[],
-    hdr,...examples,
-    [],['── ADD YOUR HOLDINGS BELOW THIS LINE ──'],[hdr],
+
+  const ws1 = XLSX.utils.aoa_to_sheet([
+    [`WEALTHVAULT — ${mkt} PORTFOLIO IMPORT TEMPLATE`],
+    [`Market: ${isUS?'US (NYSE/NASDAQ)':'India (NSE/BSE)'}  |  Values in ${cur}  |  Return % optional  |  Credit Card balances enter as positive numbers`],
+    [],
+    hdr,
+    ...examples,
+    [],
+    ['── ADD YOUR HOLDINGS BELOW (copy header row above) ──'],
+    [hdr[0], hdr[1], hdr[2], hdr[3], hdr[4], hdr[5]],
   ]);
-  ws1['!cols']=[{wch:28},{wch:14},{wch:10},{wch:16},{wch:10},{wch:28}];
-  XLSX.utils.book_append_sheet(wb,ws1,'Holdings');
-  // Transactions template
-  const tHdr=['Date (DD Mon YYYY)','Type (BUY/SELL/DIV/REBAL)','Asset Name','Category','Amount (USD)','Status'];
-  const tEx=[['01 Jan 2026','BUY','Example Asset',cats[0],10000,'Settled']];
-  const ws2=XLSX.utils.aoa_to_sheet([tHdr,...tEx]);
-  ws2['!cols']=[{wch:18},{wch:22},{wch:28},{wch:10},{wch:14},{wch:10}];
-  XLSX.utils.book_append_sheet(wb,ws2,'Transactions');
-  // Category reference
-  const ws3=XLSX.utils.aoa_to_sheet([
-    ['Valid Asset Categories for '+mkt+' Market'],[],
-    ['Category','Description'],...cats.map(c=>{
-      const desc={Stocks:'Individual company shares',Cash:'Cash in bank / savings accounts',FD:'Fixed Deposits (India)',CD:'Certificates of Deposit (US)',MF:'Mutual Funds',ULIPs:'Unit Linked Insurance Plans',ETF:'Exchange Traded Funds',Bonds:'Government / Corporate Bonds',Other:'Other investments'};
-      return [c,desc[c]||''];
-    })
+  ws1['!cols'] = [{wch:30},{wch:16},{wch:14},{wch:14},{wch:10},{wch:36}];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Holdings');
+
+  // ── Sheet 2: 401K Detail (US only) ────────────────────────────
+  if (isUS) {
+    const k401Hdr = ['Account Name','Provider','Account #','Current Balance ($)','YTD Contribution ($)','Employer Match ($)','Investment Option','Notes'];
+    const k401Ex  = [
+      ['Fidelity 401K',     'Fidelity Investments', 'XXX-1234', 85000, 10000, 4500, 'Target Date 2050 Fund', 'Traditional 401K'],
+      ['Roth IRA',          'Vanguard',              'XXX-5678', 42000, 7000,  0,    'Total Stock Market Index','Roth IRA'],
+      ['HSA Account',       'Optum Bank',            'XXX-9012', 8500,  3650,  0,    'Money Market',           'Health Savings Account'],
+    ];
+    const ws401 = XLSX.utils.aoa_to_sheet([
+      ['WEALTHVAULT — US 401K / RETIREMENT ACCOUNTS TEMPLATE'],
+      ['Enter each retirement account as a separate row. Totals auto-calculate.'],
+      [],
+      k401Hdr,
+      ...k401Ex,
+      [],
+      ['── ADD YOUR ACCOUNTS BELOW ──'],
+      k401Hdr,
+    ]);
+    ws401['!cols'] = [{wch:22},{wch:22},{wch:14},{wch:18},{wch:18},{wch:16},{wch:24},{wch:28}];
+    XLSX.utils.book_append_sheet(wb, ws401, '401K Retirement');
+  }
+
+  // ── Sheet 3: Bank Savings (US only) ───────────────────────────
+  if (isUS) {
+    const bHdr = ['Bank / Institution','Account Type','Account # (last 4)','Balance ($)','APY %','FDIC Insured','Notes'];
+    const bEx  = [
+      ['Chase Bank',         'High-Yield Savings','1234', 25000, 4.25, 'Yes', 'Main emergency fund'],
+      ['Ally Bank',          'Savings',           '5678', 18000, 4.50, 'Yes', 'Short-term savings'],
+      ['Fidelity',           'Money Market',      '9012', 12000, 4.97, 'Yes', 'Cash management'],
+    ];
+    const wsSav = XLSX.utils.aoa_to_sheet([
+      ['WEALTHVAULT — US BANK SAVINGS TEMPLATE'],
+      ['Track all savings and money market accounts here.'],
+      [],
+      bHdr,
+      ...bEx,
+      [],
+      ['── ADD YOUR ACCOUNTS BELOW ──'],
+      bHdr,
+    ]);
+    wsSav['!cols'] = [{wch:22},{wch:18},{wch:16},{wch:14},{wch:8},{wch:14},{wch:28}];
+    XLSX.utils.book_append_sheet(wb, wsSav, 'Bank Savings');
+  }
+
+  // ── Sheet 4: Credit Cards (US only) ──────────────────────────
+  if (isUS) {
+    const ccHdr = ['Card Name','Bank / Issuer','Last 4 Digits','Current Balance ($)','Credit Limit ($)','APR %','Due Date','Notes'];
+    const ccEx  = [
+      ['Sapphire Reserve',  'Chase',          '1234', 2400,  10000, 21.49, '15th monthly', 'Travel rewards card'],
+      ['Gold Card',         'Amex',           '5678', 1800,  15000, 29.99, '28th monthly', 'Dining & groceries'],
+      ['Freedom Unlimited', 'Chase',          '9012', 850,   5000,  19.99, '22nd monthly', 'Cashback card'],
+    ];
+    const wsCC = XLSX.utils.aoa_to_sheet([
+      ['WEALTHVAULT — US CREDIT CARD BALANCES TEMPLATE'],
+      ['Track outstanding credit card balances here. These reduce your Net Worth calculation.'],
+      ['Note: Enter Balance as a positive number — the app will subtract it from total assets automatically.'],
+      [],
+      ccHdr,
+      ...ccEx,
+      [],
+      ['── ADD YOUR CARDS BELOW ──'],
+      ccHdr,
+    ]);
+    wsCC['!cols'] = [{wch:22},{wch:16},{wch:14},{wch:16},{wch:14},{wch:8},{wch:14},{wch:28}];
+    XLSX.utils.book_append_sheet(wb, wsCC, 'Credit Cards');
+  }
+
+  // ── Sheet 5: Transactions ─────────────────────────────────────
+  const tHdr = [`Date (DD Mon YYYY)`,`Type (BUY/SELL/DIV/REBAL/DEP/WITH)`,`Asset Name`,`Category`,`Amount (${cur})`,`Status`];
+  const tEx  = isUS
+    ? [['01 Mar 2026','BUY','Apple Inc (AAPL)','Stocks',5000,'Settled'],
+       ['15 Feb 2026','DEP','401K Contribution','401K',2083,'Settled'],
+       ['01 Feb 2026','DEP','Chase Savings Deposit','Bank Savings',1000,'Settled'],
+       ['28 Jan 2026','WITH','Credit Card Payment','Credit Card',850,'Settled']]
+    : [['01 Jan 2026','BUY','Example Asset',cats[0],10000,'Settled']];
+  const wsTx = XLSX.utils.aoa_to_sheet([tHdr, ...tEx]);
+  wsTx['!cols'] = [{wch:18},{wch:28},{wch:28},{wch:14},{wch:14},{wch:10}];
+  XLSX.utils.book_append_sheet(wb, wsTx, 'Transactions');
+
+  // ── Sheet 6: Categories Reference ────────────────────────────
+  const descMap = {
+    Stocks: 'Individual company shares (NYSE/NASDAQ)',
+    '401K': 'Employer-sponsored retirement plan, IRA, Roth IRA, HSA',
+    CD: 'Bank Certificates of Deposit — fixed term, fixed rate',
+    MF: 'Mutual Funds — actively or passively managed',
+    ETF: 'Exchange Traded Funds (SPY, QQQ, VTI etc.)',
+    'Bank Savings': 'Savings accounts, money market, checking balances',
+    'Credit Card': 'Outstanding credit card balances (reduces net worth)',
+    Bonds: 'US Treasuries, Corporate Bonds, Municipal Bonds',
+    Other: 'Any other investment or asset',
+    Cash: 'Cash and liquid bank accounts',
+    FD: 'Fixed Deposits (India)',
+    ULIPs: 'Unit Linked Insurance Plans',
+  };
+  const wsRef = XLSX.utils.aoa_to_sheet([
+    [`Valid Asset Categories — ${mkt} Market`], [],
+    ['Category', 'Description', 'How to Enter Value'],
+    ...cats.map(c => [c, descMap[c]||'', c==='Credit Card'?'Enter balance owed (positive number)':'Enter current market/account value']),
+    [],
+    ['TIPS'],
+    ['• For Credit Cards: enter the outstanding balance as a positive number'],
+    ['• For 401K: enter the current total account value'],
+    ['• For Bank Savings: enter current account balance'],
+    ['• Return % is optional — skip if unknown'],
+    ['• Ticker/ID is optional but helpful for tracking'],
   ]);
-  ws3['!cols']=[{wch:16},{wch:36}];
-  XLSX.utils.book_append_sheet(wb,ws3,'Categories Reference');
-  XLSX.writeFile(wb,`WealthVault_${mkt}_ImportTemplate.xlsx`);
-  showToast(`✓ Template downloaded: ${mkt} Import Template`,'var(--green)');
+  wsRef['!cols'] = [{wch:16},{wch:44},{wch:38}];
+  XLSX.utils.book_append_sheet(wb, wsRef, 'Categories Guide');
+
+  XLSX.writeFile(wb, `WealthVault_${mkt}_Template.xlsx`);
+  showToast(`✓ Downloaded: ${mkt} Import Template`, 'var(--green)');
 }
 
 // ═══════════════════════════ IMPORT MODAL ════════════════════════
@@ -1338,13 +1623,13 @@ function buildImportPreview(){
   const preview=document.getElementById('importPreview');
   if(!parsedImportData){ preview.innerHTML=''; return; }
   let html='';
+
   // Holdings sheet preview
   const holdingsSheet=parsedImportData['Holdings']||parsedImportData['holdings']||parsedImportData[Object.keys(parsedImportData)[0]];
   if(holdingsSheet&&holdingsSheet.length>1){
-    const hdr=holdingsSheet[0];
     const rows=holdingsSheet.slice(1).filter(r=>r[0]&&String(r[0]).trim()&&!String(r[0]).startsWith('─')&&!String(r[0]).startsWith('WEALTHVAULT'));
     html+=`<div class="import-section">
-      <div class="import-section-head"><span>📊 Holdings Preview (${rows.length} rows)</span><span style="color:var(--green)">✓ Ready</span></div>
+      <div class="import-section-head"><span>📊 Holdings (${rows.length} rows)</span><span style="color:var(--green)">✓ Ready</span></div>
       <div class="import-section-body">
         <div style="overflow-x:auto">
           <div class="tbl-header" style="grid-template-columns:2fr 1fr 0.8fr 1fr 0.6fr">
@@ -1362,6 +1647,52 @@ function buildImportPreview(){
       </div>
     </div>`;
   }
+
+  // 401K sheet
+  const k401Sheet=parsedImportData['401K Retirement']||parsedImportData['401K'];
+  if(k401Sheet&&k401Sheet.length>1){
+    const rows=k401Sheet.slice(1).filter(r=>r[0]&&!String(r[0]).startsWith('─')&&!String(r[0]).startsWith('WEALTHVAULT')&&!String(r[0]).startsWith('TOTAL'));
+    html+=`<div class="import-section">
+      <div class="import-section-head"><span>🏦 401K / Retirement Accounts (${rows.length} accounts)</span><span style="color:#22C55E">✓ Ready</span></div>
+      <div class="import-section-body">
+        ${rows.slice(0,3).map(r=>`<div class="tbl-row" style="display:flex;justify-content:space-between">
+          <span style="font-size:12px;color:#D8C8B8">${r[0]||''}</span>
+          <span class="mono" style="font-size:11px;color:#22C55E">${r[3]?'$'+Number(r[3]).toLocaleString():'—'}</span>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Bank Savings sheet
+  const savSheet=parsedImportData['Bank Savings'];
+  if(savSheet&&savSheet.length>1){
+    const rows=savSheet.slice(1).filter(r=>r[0]&&!String(r[0]).startsWith('─')&&!String(r[0]).startsWith('WEALTHVAULT')&&!String(r[0]).startsWith('TOTAL'));
+    html+=`<div class="import-section">
+      <div class="import-section-head"><span>🏛 Bank Savings Accounts (${rows.length} accounts)</span><span style="color:#06B6D4">✓ Ready</span></div>
+      <div class="import-section-body">
+        ${rows.slice(0,3).map(r=>`<div class="tbl-row" style="display:flex;justify-content:space-between">
+          <span style="font-size:12px;color:#D8C8B8">${r[0]||''}${r[1]?' — '+r[1]:''}</span>
+          <span class="mono" style="font-size:11px;color:#06B6D4">${r[3]?'$'+Number(r[3]).toLocaleString():'—'}</span>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Credit Cards sheet
+  const ccSheet=parsedImportData['Credit Cards']||parsedImportData['Credit Card'];
+  if(ccSheet&&ccSheet.length>1){
+    const rows=ccSheet.slice(1).filter(r=>r[0]&&!String(r[0]).startsWith('─')&&!String(r[0]).startsWith('WEALTHVAULT')&&!String(r[0]).startsWith('TOTAL'));
+    html+=`<div class="import-section">
+      <div class="import-section-head"><span>💳 Credit Card Balances (${rows.length} cards)</span><span style="color:#F43F5E">⚠ Liability</span></div>
+      <div class="import-section-body">
+        ${rows.slice(0,3).map(r=>`<div class="tbl-row" style="display:flex;justify-content:space-between">
+          <span style="font-size:12px;color:#FF8090">${r[0]||''}${r[1]?' — '+r[1]:''}</span>
+          <span class="mono" style="font-size:11px;color:#F43F5E">-$${r[3]?Number(r[3]).toLocaleString():'0'}</span>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
   // Transactions sheet
   const txSheet=parsedImportData['Transactions']||parsedImportData['transactions'];
   if(txSheet&&txSheet.length>1){
@@ -1370,6 +1701,7 @@ function buildImportPreview(){
       <div class="import-section-head"><span>📋 Transactions (${rows.length} rows)</span><span style="color:var(--green)">✓ Ready</span></div>
     </div>`;
   }
+
   preview.innerHTML=html||`<div class="mono" style="font-size:10px;color:var(--text3);padding:12px 0">No recognized sheets found. Ensure your file has a 'Holdings' sheet.</div>`;
 }
 
@@ -1377,25 +1709,77 @@ function applyImport(){
   if(!parsedImportData){ showToast('No data to import','var(--red)'); return; }
   const holdingsSheet=parsedImportData['Holdings']||parsedImportData['holdings']||parsedImportData[Object.keys(parsedImportData)[0]];
   const txSheet=parsedImportData['Transactions']||parsedImportData['transactions'];
+  const k401Sheet=parsedImportData['401K Retirement']||parsedImportData['401K'];
+  const savSheet=parsedImportData['Bank Savings'];
+  const ccSheet=parsedImportData['Credit Cards']||parsedImportData['Credit Card'];
   const m=importTargetMarket;
-  // Parse holdings
+  const isUS = m === 'US';
+
+  let allHoldings = [];
+
+  // ── Parse main Holdings sheet ──────────────────────────────────
   if(holdingsSheet&&holdingsSheet.length>1){
     const rows=holdingsSheet.slice(1).filter(r=>r[0]&&String(r[0]).trim()&&!String(r[0]).startsWith('─')&&!String(r[0]).startsWith('WEALTHVAULT')&&!String(r[0]).startsWith('──'));
-    const newHoldings=rows.map((r,i)=>{
+    rows.forEach((r,i)=>{
       const rawVal=parseFloat(r[3])||0;
+      if(!r[0]||rawVal===0) return;
       const valUSD=currency==='INR'?rawVal/USD_INR:rawVal;
       const cat=r[2]&&ASSET_CATEGORIES[m].includes(String(r[2]))?String(r[2]):'Other';
-      return {id:'imp_'+Date.now()+'_'+i, name:String(r[0]).trim(), ticker:String(r[1]||'').trim(), category:cat, valueUSD:valUSD, returnPct:r[4]!=null&&r[4]!==''?parseFloat(r[4]):null, notes:String(r[5]||'').trim()};
-    }).filter(h=>h.name&&h.valueUSD>0);
-    portfolioData[m].holdings=newHoldings;
-    // Recalc totals
-    const tot=totalUSD(m);
-    portfolioData[m].gainUSD=tot*0.15;
-    portfolioData[m].gainPct=15;
-    portfolioData[m].ytd=newHoldings.reduce((s,h)=>s+(h.returnPct||0),0)/Math.max(newHoldings.length,1);
-    // Update perf data with imported total
-    portfolioData[m].perf=portfolioData[m].perf.map((p,i,arr)=>({...p,v:tot*(0.7+i*0.025)}));
+      allHoldings.push({id:'imp_h_'+Date.now()+'_'+i, name:String(r[0]).trim(), ticker:String(r[1]||'').trim(), category:cat, valueUSD:valUSD, returnPct:r[4]!=null&&r[4]!==''?parseFloat(r[4]):null, notes:String(r[5]||'').trim()});
+    });
   }
+
+  // ── Parse 401K sheet (US) ──────────────────────────────────────
+  if(isUS && k401Sheet && k401Sheet.length>1){
+    const rows=k401Sheet.slice(1).filter(r=>r[0]&&String(r[0]).trim()&&!String(r[0]).startsWith('─')&&!String(r[0]).startsWith('WEALTHVAULT')&&!String(r[0]).startsWith('TOTAL'));
+    rows.forEach((r,i)=>{
+      // Columns: Account Name, Provider, Account#, Balance, YTD Contrib, Employer Match, Investment, Notes
+      const bal = parseFloat(r[3])||0;
+      if(!r[0]||bal===0) return;
+      const notes = [r[1]?`Provider: ${r[1]}`:'', r[2]?`Acct: ${r[2]}`:'', r[4]?`YTD: $${r[4]}`:'', r[6]?`Fund: ${r[6]}`:'', r[7]||''].filter(Boolean).join(' · ');
+      allHoldings.push({id:'imp_401_'+Date.now()+'_'+i, name:String(r[0]).trim(), ticker:String(r[2]||'401K-'+i).trim(), category:'401K', valueUSD:bal, returnPct:null, notes});
+    });
+  }
+
+  // ── Parse Bank Savings sheet (US) ─────────────────────────────
+  if(isUS && savSheet && savSheet.length>1){
+    const rows=savSheet.slice(1).filter(r=>r[0]&&String(r[0]).trim()&&!String(r[0]).startsWith('─')&&!String(r[0]).startsWith('WEALTHVAULT')&&!String(r[0]).startsWith('TOTAL'));
+    rows.forEach((r,i)=>{
+      // Columns: Bank, Account Type, Acct# last4, Balance, APY%, FDIC, Notes
+      const bal = parseFloat(r[3])||0;
+      if(!r[0]||bal===0) return;
+      const apy = r[4]?parseFloat(r[4]):null;
+      const notes = [r[1]?`Type: ${r[1]}`:'', r[2]?`Acct …${r[2]}`:'', r[5]?`FDIC: ${r[5]}`:'', r[6]||''].filter(Boolean).join(' · ');
+      allHoldings.push({id:'imp_sav_'+Date.now()+'_'+i, name:String(r[0]).trim(), ticker:`SAV-${String(r[2]||i)}`, category:'Bank Savings', valueUSD:bal, returnPct:apy, notes});
+    });
+  }
+
+  // ── Parse Credit Cards sheet (US) ─────────────────────────────
+  if(isUS && ccSheet && ccSheet.length>1){
+    const rows=ccSheet.slice(1).filter(r=>r[0]&&String(r[0]).trim()&&!String(r[0]).startsWith('─')&&!String(r[0]).startsWith('WEALTHVAULT')&&!String(r[0]).startsWith('TOTAL'));
+    rows.forEach((r,i)=>{
+      // Columns: Card Name, Bank/Issuer, Last4, Balance, Credit Limit, APR%, Due Date, Notes
+      const bal = parseFloat(r[3])||0;
+      if(!r[0]||bal===0) return;
+      const apr = r[5]?parseFloat(r[5]):null;
+      const notes = [r[1]?`Issuer: ${r[1]}`:'', r[2]?`…${r[2]}`:'', r[4]?`Limit: $${Number(r[4]).toLocaleString()}`:'', r[6]?`Due: ${r[6]}`:'', r[7]||''].filter(Boolean).join(' · ');
+      allHoldings.push({id:'imp_cc_'+Date.now()+'_'+i, name:String(r[0]).trim(), ticker:`CC-${String(r[2]||i)}`, category:'Credit Card', valueUSD:bal, returnPct:apr, notes});
+    });
+  }
+
+  if(allHoldings.length===0){ showToast('No valid rows found to import.','var(--red)'); return; }
+
+  portfolioData[m].holdings = allHoldings;
+
+  // Recalc totals (exclude CC from return calc)
+  const tot=totalUSD(m);
+  const ccTotal=allHoldings.filter(h=>h.category==='Credit Card').reduce((s,h)=>s+h.valueUSD,0);
+  const assetTotal=tot-ccTotal;
+  portfolioData[m].gainUSD=assetTotal*0.15;
+  portfolioData[m].gainPct=15;
+  portfolioData[m].ytd=allHoldings.filter(h=>h.category!=='Credit Card'&&h.returnPct!=null).reduce((s,h,_,a)=>s+(h.returnPct||0)/Math.max(a.length,1),0);
+  portfolioData[m].perf=portfolioData[m].perf.map((p,i)=>({...p,v:Math.max(assetTotal*(0.7+i*0.025),0)}));
+
   // Parse transactions
   if(txSheet&&txSheet.length>1){
     const rows=txSheet.slice(1).filter(r=>r[0]&&r[1]);
@@ -1404,8 +1788,10 @@ function applyImport(){
       amtUSD:r[4]&&r[4]!=='—'?(currency==='INR'?parseFloat(r[4])/USD_INR:parseFloat(r[4])):null,status:String(r[5]||'Settled')
     })).filter(t=>t.date&&t.type&&t.asset);
   }
+
   closeImport(); market=m; activeCat='All'; applyTheme(); renderAll();
-  showToast(`✓ Portfolio imported for ${MARKET_META[m].label}`,'var(--green)');
+  const sheets = ['Holdings',isUS&&k401Sheet?'401K':null,isUS&&savSheet?'Bank Savings':null,isUS&&ccSheet?'Credit Cards':null].filter(Boolean);
+  showToast(`✓ Imported ${allHoldings.length} holdings from: ${sheets.join(', ')}`,'var(--green)');
 }
 
 function resetImport(){
